@@ -1,0 +1,59 @@
+# Python 字节码 / 缓存
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 构建 / 打包产物
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# 测试 / 覆盖率
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# 类型检查 / LSP
+.mypy_cache/
+.pyright/
+.ruff_cache/
+
+# 日志 / 临时文件
+*.log
+*.tmp
+*.swp
+*.swo
+
+# IDE / 编辑器
+.vscode/
+.idea/
+*.iml
+
+# 操作系统杂项
+.DS_Store
+Thumbs.db
+
+# Poetry / pip
+poetry.lock.backup
+pip-wheel-metadata/
+
+# 项目私有配置（⚠️非常重要）
+config.yml
+config.yaml
+.env
+.env.*
+
+!config.example.yml
+!.env.example
+
+downloads/
+cache/
+temp/

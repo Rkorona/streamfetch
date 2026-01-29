@@ -1,0 +1,26 @@
+[project]
+name = "streamfetch"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Rkorona",email = "korona.starx@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12,<4.0"
+dependencies = [
+    "requests (>=2.32.5,<3.0.0)",
+    "rich (>=14.3.1,<15.0.0)",
+    "typer (>=0.21.1,<0.22.0)",
+    "pyyaml (>=6.0.3,<7.0.0)"
+]
+
+[tool.poetry]
+name = "streamfetch"
+packages = [{include = "streamfetch", from = "src"}]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+[tool.poetry.scripts]
+streamfetch = "streamfetch.main:app"
+sf = "streamfetch.main:app"

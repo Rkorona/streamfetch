@@ -1,0 +1,54 @@
+
+general:
+  # 下载保存的根目录 (支持相对路径或绝对路径)
+  download_dir: ""
+  # 日志级别
+  log_level: "INFO"
+
+audio:
+  # 目标最高音质: HI_RES, LOSSLESS, HIGH
+  # HI_RES   = Master / Hi-Res FLAC
+  # LOSSLESS = HiFi / CD FLAC
+  # HIGH     = High / 320kbps AAC
+  max_quality: "HIRES_LOSSLESS"
+
+  # 如果最高音质不可用，是否允许自动降级下载 (True/False)
+  auto_fallback: true
+
+network:
+  # API 服务器列表
+  # 程序会随机选择其中一个
+  api_urls:
+    - "https://xxxxx"
+
+  # DASH 分段下载并发数 (建议 4-16)
+  concurrency: 16
+
+  # 请求超时时间 (秒)
+  timeout: 30
+
+  # 失败重试次数
+  max_retries: 3
+
+lyrics:
+  # 是否保存为外部 .lrc 文件 (True/False)
+  save_lrc: False
+
+ffmpeg:
+  # FFmpeg 可执行文件路径
+  # 如果已添加到系统环境变量，直接填 "ffmpeg" 即可
+  # 否则填绝对路径，例如: "C:/Tools/ffmpeg/bin/ffmpeg.exe"
+  binary: "ffmpeg"
+
+
+naming:
+  # 自定义文件名/目录格式
+  # 支持的变量:
+  # {Title}       - 歌名
+  # {Artist}      - 歌手名
+  # {Album}       - 专辑名
+  # {TrackNumber} - 歌曲序号 (自动补零, 如 01)
+  # {Year}        - 发行年份
+  # {Quality}     - 音质 (Hi-Res, Lossless)
+  # {Explicit}    - 脏标 (E 或 空)
+  file_format: "{Artist}/{Album}/{Title}"
