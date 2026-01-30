@@ -1,7 +1,9 @@
 import base64
 import urllib.parse
 import logging
+import time
 from streamfetch.utils.http import fetch_get
+from streamfetch.config.api_targets import get_base_url
 
 logger = logging.getLogger("streamfetch")
 
@@ -9,6 +11,22 @@ logger = logging.getLogger("streamfetch")
 class TidalApi:
     def __init__(self, base_url):
         self.base_url = base_url
+
+    def _switch_server(self):
+        """辅助函数：切换到新的服务器"""
+        old_url = self.base_url
+        for _ in range(3):
+            new_url = get_base_url()
+            if new_url != old_url:
+                self.base_url = new_url
+                break
+
+        logger.warning(
+            f"⚠️  服务器异常 [dim]({old_url})[/dim]，切换至: [cyan]{
+                self.base_url
+            }[/cyan]",
+            extra={"markup": True},
+        )
 
     def _find_items_array(self, obj):
         if not obj or not isinstance(obj, (dict, list)):
@@ -31,7 +49,6 @@ class TidalApi:
         return None
 
     def _ms_to_lrc(self, ms):
-        """将毫秒转换为标准的 [mm:ss.xx] 格式"""
         try:
             t = int(ms) / 1000
             m = int(t // 60)
@@ -41,32 +58,21 @@ class TidalApi:
             return ""
 
     def _extract_actual_lyrics(self, obj):
-        """
-        全量递归查找字符串，并支持动态列表转换
-        """
         if not obj:
             return None
-
-        # 1. 如果当前是字符串，判断它是否长得像歌词
         if isinstance(obj, str):
             if "\n" in obj and len(obj) > 20:
                 has_timestamp = "[" in obj and ":" in obj
                 return obj.strip(), has_timestamp
             return None
-
-        # 2. 如果当前是字典，进行深度搜索
         if isinstance(obj, dict):
-            # A. 优先检查当前层是否有明确的歌词键，且值是字符串
             for key in ["subtitles", "lyrics"]:
                 val = obj.get(key)
                 if isinstance(val, str) and len(val) > 20:
                     has_timestamp = "[" in val and ":" in val
                     return val.strip(), has_timestamp
-
-            # B. 检查当前层是否有动态列表格式 (Python 增强逻辑，用于支持滚动)
             lines = obj.get("subtitles") or obj.get("lines")
             if isinstance(lines, list) and len(lines) > 0:
-                # 检查列表项是否包含时间戳信息
                 first = lines[0]
                 if isinstance(first, dict) and (
                     "startTime" in first or "start" in first
@@ -80,230 +86,267 @@ class TidalApi:
                             lrc_lines.append(f"{timestamp}{word}")
                     if lrc_lines:
                         return "\n".join(lrc_lines), True
-
-            # C. 全量递归查找：遍历字典所有键
             for key, value in obj.items():
-                # 跳过已处理的键和非目标数据类型以提高效率
                 if key in ["trackId", "lyricsProvider", "album", "artist"]:
                     continue
                 res = self._extract_actual_lyrics(value)
                 if res:
                     return res
-
-        # 3. 如果当前是列表，遍历每一项进行查找
         if isinstance(obj, list):
             for item in obj:
                 res = self._extract_actual_lyrics(item)
                 if res:
                     return res
-
         return None
 
     def search_tracks(self, query):
         logger.info(
-            f'🔍 正在搜索: [bold yellow]"{query}"[/bold yellow]...',
+            f'🔍 Searching: [bold yellow]"{query}"[/bold yellow]...',
             extra={"markup": True},
         )
-        url = f"{self.base_url}/search/?s={
-            urllib.parse.quote(query)
-        }&limit=25&countryCode=WW"
-        try:
-            data = fetch_get(url).json()
-            raw_items = self._find_items_array(data)
-            if not raw_items:
-                return []
 
-            results = []
-            for item in raw_items:
-                t = item.get("item", item)
-                if not t or not t.get("title"):
-                    continue
+        max_retries = 6
 
-                base_quality = t.get("audioQuality", "Unknown")
-                tags = t.get("mediaMetadata", {}).get("tags", [])
+        for attempt in range(max_retries):
+            try:
+                url = f"{self.base_url}/search/?s={
+                    urllib.parse.quote(query)
+                }&limit=25&countryCode=WW"
+                resp = fetch_get(url)
+                data = resp.json()
 
-                if "HIRES_LOSSLESS" in tags:
-                    display_quality = "HI_RES"
-                elif "MQA" in tags:
-                    display_quality = "HI_RES"
-                else:
-                    display_quality = base_quality
+                raw_items = self._find_items_array(data)
 
-                results.append(
-                    {
-                        "id": str(t.get("id")),
-                        "title": t.get("title"),
-                        "artist": t.get("artist", {}).get("name")
-                        or t.get("artists", [{}])[0].get("name")
-                        or "Unknown",
-                        "album": t.get("album", {}).get("title", "Unknown Album"),
-                        "quality": display_quality,
-                    }
-                )
-            return results
-        except Exception as e:
-            logger.error(f"搜索失败: {e}")
-            return []
+                if not raw_items:
+                    return []
+
+                results = []
+                for item in raw_items:
+                    t = item.get("item", item)
+                    if not t or not t.get("title"):
+                        continue
+
+                    # --- 修改点 1: 处理 Version 字段 ---
+                    title = t.get("title")
+                    version = t.get("version")
+                    if version:
+                        title = f"{title} ({version})"
+
+                    base_quality = t.get("audioQuality", "Unknown")
+                    tags = t.get("mediaMetadata", {}).get("tags", [])
+
+                    if "HIRES_LOSSLESS" in tags:
+                        display_quality = "HI_RES"
+                    elif "MQA" in tags:
+                        display_quality = "HI_RES"
+                    else:
+                        display_quality = base_quality
+
+                    results.append(
+                        {
+                            "id": str(t.get("id")),
+                            "title": title,  # 使用带版本号的标题
+                            "artist": t.get("artist", {}).get("name")
+                            or t.get("artists", [{}])[0].get("name")
+                            or "Unknown",
+                            "album": t.get("album", {}).get("title", "Unknown Album"),
+                            "quality": display_quality,
+                        }
+                    )
+                return results
+
+            except Exception as e:
+                is_last_attempt = attempt == max_retries - 1
+
+                if is_last_attempt:
+                    logger.error(f"❌ 搜索最终失败: {e}")
+                    return []
+
+                self._switch_server()
+                time.sleep(0.5)
+
+        return []
 
     def get_metadata(self, track_id):
-        logger.info(
-            f"📡 [cyan][1/6][/cyan] 获取元数据 (ID: {track_id})...",
-            extra={"markup": True},
-        )
-        resp = fetch_get(f"{self.base_url}/info/?id={track_id}").json()
-        info = resp.get("data", resp)
+        logger.debug(f"📡 [1/6] Getting metadata (ID: {track_id})...")
 
-        # 1. 获取基础音质
-        base_quality = info.get("audioQuality", "LOSSLESS")
+        max_retries = 6
+        for attempt in range(max_retries):
+            try:
+                resp = fetch_get(f"{self.base_url}/info/?id={track_id}").json()
+                info = resp.get("data", resp)
 
-        # 2. 获取高级标签
-        media_metadata = info.get("mediaMetadata", {})
-        tags = media_metadata.get("tags", [])
+                if not info or "title" not in info:
+                    raise Exception("Invalid metadata response")
 
-        # 3. 判定有效最高音质
-        # 如果标签里明确写了 HIRES_LOSSLESS，强制提升为 HI_RES
-        if "HIRES_LOSSLESS" in tags:
-            effective_quality = "HI_RES"
-        # 兼容旧版 MQA 标签
-        elif "MQA" in tags:
-            effective_quality = "HI_RES"
-        # 否则使用基础音质
-        else:
-            effective_quality = base_quality
+                base_quality = info.get("audioQuality", "LOSSLESS")
+                media_metadata = info.get("mediaMetadata", {})
+                tags = media_metadata.get("tags", [])
 
-        date_str = info.get("streamStartDate") or info.get("releaseDate")
-        year = date_str.split("-")[0] if date_str else "Unknown"
+                if "HIRES_LOSSLESS" in tags:
+                    effective_quality = "HI_RES"
+                elif "MQA" in tags:
+                    effective_quality = "HI_RES"
+                else:
+                    effective_quality = base_quality
 
-        # 3. 获取脏标 (Explicit)
-        is_explicit = info.get("explicit", False)
-        explicit_tag = "E" if is_explicit else ""
+                date_str = info.get("streamStartDate") or info.get("releaseDate")
+                year = date_str.split("-")[0] if date_str else "Unknown"
+                is_explicit = info.get("explicit", False)
+                explicit_tag = "E" if is_explicit else ""
 
-        return {
-            "title": info.get("title", "Unknown Title"),
-            "album": info.get("album", {}).get("title", "Unknown Album"),
-            "artist": info.get("artist", {}).get("name")
-            or info.get("artists", [{}])[0].get("name")
-            or "Unknown Artist",
-            "trackNumber": info.get("trackNumber", 1),
-            "coverId": info.get("album", {}).get("cover") or info.get("cover"),
-            "audioQuality": effective_quality,
-            "year": year,
-            "explicit": explicit_tag,
-        }
+                return {
+                    "title": info.get("title", "Unknown Title"),
+                    "album": info.get("album", {}).get("title", "Unknown Album"),
+                    "artist": info.get("artist", {}).get("name")
+                    or info.get("artists", [{}])[0].get("name")
+                    or "Unknown Artist",
+                    "trackNumber": info.get("trackNumber", 1),
+                    "coverId": info.get("album", {}).get("cover") or info.get("cover"),
+                    "audioQuality": effective_quality,
+                    "year": year,
+                    "explicit": explicit_tag,
+                }
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise e
+                self._switch_server()
+                time.sleep(0.5)
 
     def get_lyrics(self, track_id):
-        logger.info(f"📝 [cyan][2/6][/cyan] 获取歌词...", extra={"markup": True})
+        logger.debug(f"📝 [2/6] Getting lyrics...")
         try:
             resp = fetch_get(f"{self.base_url}/lyrics/?id={track_id}")
             data = resp.json()
-
             result = self._extract_actual_lyrics(data)
             if result:
                 text, is_sync = result
-                type_str = "滚动歌词" if is_sync else "纯文本"
-                logger.info(
-                    f"   -> 提取成功 ([bold green]{type_str}[/bold green])",
-                    extra={"markup": True},
-                )
                 return {"text": text, "isLrc": is_sync}
-
-            logger.warning("   -> 未能在 API 返回中找到有效歌词内容")
-        except Exception as e:
-            logger.debug(f"歌词提取失败详情: {e}")
+        except Exception:
+            pass
         return None
 
     def get_stream_manifest(self, track_id, quality):
-        q_name = "Hi-Res" if quality == "HI_RES_LOSSLESS" else "Lossless"
-        logger.info(
-            f"🌐 [cyan][3/6][/cyan] 获取流清单 ({q_name})...", extra={"markup": True}
-        )
-        data = fetch_get(
-            f"{self.base_url}/track/?id={track_id}&quality={quality}"
-        ).json()
-        container = data.get("data", data)
-        manifest_b64 = container.get("manifest") or container.get("info", {}).get(
-            "manifest"
-        )
-        if not manifest_b64:
-            raise Exception("API 未返回 Manifest")
-        return base64.b64decode(manifest_b64).decode("utf-8")
+        logger.debug(f"🌐 [3/6] Getting manifest ({quality})...")
+
+        max_retries = 6
+        for attempt in range(max_retries):
+            try:
+                data = fetch_get(
+                    f"{self.base_url}/track/?id={track_id}&quality={quality}"
+                ).json()
+                container = data.get("data", data)
+                manifest_b64 = container.get("manifest") or container.get(
+                    "info", {}
+                ).get("manifest")
+                if not manifest_b64:
+                    raise Exception("API returned no manifest")
+
+                return base64.b64decode(manifest_b64).decode("utf-8")
+
+            except Exception as e:
+                if "404" in str(e) and attempt >= 2:
+                    raise e
+
+                if attempt == max_retries - 1:
+                    raise e
+
+                self._switch_server()
+                time.sleep(0.5)
 
     def get_album(self, album_id):
-        data = fetch_get(f"{self.base_url}/album/?id={album_id}").json()
-        if "data" in data:
-            items = data["data"].get("items", [])
-            album_info = (
-                items[0].get("item", items[0]).get("album", {}) if items else {}
-            )
-        else:
-            album_info = data[0] if isinstance(data, list) else {}
-            items = (
-                data[1].get("items", [])
-                if isinstance(data, list) and len(data) > 1
-                else []
-            )
-        return {
-            "albumInfo": album_info,
-            "tracks": [i.get("item", i) for i in items if i.get("item", i).get("id")],
-        }
+        max_retries = 6
+        for attempt in range(max_retries):
+            try:
+                # 1. 请求专辑详情
+                resp = fetch_get(f"{self.base_url}/album/?id={album_id}").json()
+                
+                # 2. 提取专辑元数据 (Root Data)
+                # 这里的 data 包含了 title, artist(关键!), 以及 items (歌曲列表)
+                album_info = resp.get("data", resp)
+
+                # 3. 提取歌曲列表
+                # 优先从当前响应里找 (根据你提供的 JSON，items 就在 data 里)
+                # _find_items_array 会递归查找 items 数组
+                raw_items = self._find_items_array(album_info)
+
+                # 4. 如果当前响应里没歌 (针对部分不返回 items 的镜像站)，才去请求 items 接口
+                if not raw_items:
+                    # logger.debug("专辑详情未包含歌曲，尝试请求 items 接口...")
+                    tracks_url = f"{self.base_url}/album/items/?id={album_id}&limit=100&offset=0"
+                    try:
+                        tracks_resp = fetch_get(tracks_url).json()
+                        raw_items = self._find_items_array(tracks_resp)
+                    except:
+                        pass
+                
+                if not raw_items:
+                    raw_items = []
+
+                # 5. 格式化歌曲
+                clean_tracks = []
+                for item in raw_items:
+                    t = item.get("item", item)
+                    if t and t.get("id"):
+                        # 顺便把之前做的 Version 优化也加上
+                        title = t.get("title")
+                        version = t.get("version")
+                        if version:
+                            t["title"] = f"{title} ({version})"
+                        clean_tracks.append(t)
+
+                return {
+                    "albumInfo": album_info, # 这里现在是包含 artist 的完整对象了
+                    "tracks": clean_tracks
+                }
+
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise e
+                self._switch_server()
+                time.sleep(0.5)
 
     def get_playlist(self, playlist_uuid):
-        """
-        获取歌单详情及所有歌
-        """
-        logger.info(f"📋 正在获取歌单信息: {playlist_uuid}...", extra={"markup": True})
+        logger.info(f"📋 Fetching playlist: {playlist_uuid}...", extra={"markup": True})
 
-        # 基础 URL
-        base_api_url = f"{self.base_url}/playlist/"
-
-        # 初始参数
+        max_retries = 6
+        resp = None
+        base_api_url = None
         params = {"id": playlist_uuid, "offset": 0, "limit": 100, "countryCode": "WW"}
 
-        try:
-            resp = fetch_get(base_api_url, params=params).json()
-        except Exception as e:
-            raise Exception(f"无法获取歌单信息: {e}")
+        for attempt in range(max_retries):
+            try:
+                base_api_url = f"{self.base_url}/playlist/"
+                resp = fetch_get(base_api_url, params=params).json()
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise Exception(f"无法获取歌单信息: {e}")
+                self._switch_server()
+                time.sleep(0.5)
 
-        # 2. 解析元数据 (修复点：优先查找 'playlist' 字段)
         info = resp.get("playlist") or resp.get("data") or resp.get("info") or resp
-
-        # 3. 循环获取所有歌曲
         all_tracks = []
 
-        logger.info("   -> 正在加载歌曲列表...", extra={"markup": True})
+        logger.info("   -> Loading tracks...", extra={"markup": True})
 
         while True:
-            # 查找 items 数组
             current_items = self._find_items_array(resp)
-
             if not current_items:
                 break
-
-            # 提取有效歌曲
             for item in current_items:
                 if isinstance(item, dict) and item.get("type") == "video":
                     continue
-
-                # 2. 提取内层数据
                 track = item.get("item", item)
-
-                # 3. 验证有效性
                 if track and track.get("id") and track.get("title"):
                     if track.get("type") == "VIDEO":
                         continue
-
                     all_tracks.append(track)
-
             if len(current_items) < params["limit"]:
                 break
-
             params["offset"] += params["limit"]
-
             try:
                 resp = fetch_get(base_api_url, params=params).json()
-            except Exception as e:
-                logger.warning(f"分页加载中断: {e}")
+            except Exception:
                 break
-
         return {"info": info, "tracks": all_tracks}
-

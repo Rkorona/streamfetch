@@ -8,15 +8,19 @@ _session = requests.Session()
 
 # 从配置读取重试次数
 retries_count = config["network"]["max_retries"]
-
+# concurrency = config["network"]["concurrency"]
 retries = Retry(
     total=retries_count,
     backoff_factor=1,
-    status_forcelist=[500, 502, 503, 504],
+    status_forcelist=[429, 500, 502, 503, 504],
     allowed_methods=["GET"],
 )
 
-adapter = HTTPAdapter(pool_maxsize=20, max_retries=retries)
+adapter = HTTPAdapter(
+    #pool_connections=concurrency + 5, 
+    pool_maxsize=16,
+    max_retries=retries
+)
 _session.mount("https://", adapter)
 _session.mount("http://", adapter)
 _session.headers.update(HEADERS)
