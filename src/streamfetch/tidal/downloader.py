@@ -10,7 +10,7 @@ from streamfetch.utils.filename import sanitize_filename, format_file_path
 from streamfetch.dash.parser import DashParser
 from streamfetch.media.ffmpeg import embed_metadata
 from streamfetch.config.settings import config
-from streamfetch.config.api_targets import get_base_url  # 导入获取 URL 的函数
+from streamfetch.config.api_targets import get_base_url
 
 logger = logging.getLogger("streamfetch")
 
@@ -75,7 +75,9 @@ class TidalDownloader:
             safe_title = sanitize_filename(meta["title"])
             safe_artist = sanitize_filename(meta["artist"])
             file_template = config["naming"]["file_format"]
-            final_path = format_file_path(file_template, meta, folder_path, extension=".flac")
+            final_path = format_file_path(
+                file_template, meta, folder_path, extension=".flac"
+            )
             filename_display = final_path.name
             if final_path.exists():
                 logger.info(
@@ -156,17 +158,16 @@ class TidalDownloader:
                             logger.debug(f"   -> {q_label} 不可用 (404)")
                             break
 
-                        # --- 核心修复：API 节点切换逻辑 ---
                         if attempt < max_retries:
                             logger.warning(f"   -> ⚠️  {q_label} 失败: {e}")
 
-                            # 获取一个新的 API 地址
                             try:
                                 new_base_url = get_base_url()
-                                # 动态更新当前 API 实例的地址
                                 self.api.base_url = new_base_url
                                 logger.info(
-                                    f"   -> 🔌 [bold magenta]自动切换线路:[/bold magenta] {new_base_url}",
+                                    f"   -> 🔌 [bold magenta]自动切换线路:[/bold magenta] {
+                                        new_base_url
+                                    }",
                                     extra={"markup": True},
                                 )
                             except:
@@ -191,18 +192,16 @@ class TidalDownloader:
                 )
                 return
 
-            # 3. 下载封面 (增强健壮性)
+            # 3. 下载封面
             has_cover = False
             if meta.get("coverId"):
                 try:
-                    # 替换 uuid 中的横杠为斜杠
                     cover_uuid = meta["coverId"].replace("-", "/")
                     cover_url = (
                         f"https://resources.tidal.com/images/{cover_uuid}/1280x1280.jpg"
                     )
 
                     resp = fetch_get(cover_url)
-                    # 确保下载的内容不为空
                     if resp.content and len(resp.content) > 0:
                         with open(temp_cover, "wb") as f:
                             f.write(resp.content)

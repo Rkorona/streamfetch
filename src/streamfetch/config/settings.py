@@ -40,15 +40,12 @@ def find_config_file():
     for path in candidates:
         if path.exists() and path.is_file():
             return path
-
     return None
 
 
 def load_config():
     config_path = find_config_file()
-
     if not config_path:
-        # 使用 stderr 打印警告，避免干扰正常的 stdout 输出
         console.print(
             "[bold yellow]⚠️  未找到配置文件 (config.yaml 或 config.yml)，正在使用内置默认设置。[/bold yellow]",
             style="yellow",
@@ -65,7 +62,6 @@ def load_config():
                 )
                 return DEFAULT_CONFIG
 
-            # 打印加载成功的提示 (只在第一次加载时显示)
             console.print(f"[dim]⚙️  已加载配置文件: {config_path}[/dim]")
 
             # 深度合并配置 (User Config 覆盖 Default Config)
@@ -84,6 +80,4 @@ def load_config():
         return DEFAULT_CONFIG
 
 
-# 初始化配置
 config = load_config()
-

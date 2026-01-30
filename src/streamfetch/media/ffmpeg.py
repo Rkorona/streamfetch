@@ -9,26 +9,19 @@ logger = logging.getLogger("streamfetch")
 def embed_metadata(audio_path, cover_path, lyrics_path, metadata, final_path):
     ffmpeg_bin = config["ffmpeg"]["binary"]
 
-    # 基础命令: 输入音频
     args = [ffmpeg_bin, "-i", str(audio_path)]
 
-    # 检查封面文件是否有效
     has_cover = False
     if cover_path and os.path.exists(cover_path) and os.path.getsize(cover_path) > 0:
         args.extend(["-i", str(cover_path)])
         has_cover = True
 
-    # 映射音频流
     args.extend(["-map", "0:a"])
 
-    # 如果有封面，映射视频流并标记为封面
     if has_cover:
-        # -c:v mjpeg 确保封面被重新编码为兼容性最好的格式
-        # -id3v2_version 3 提高 Windows 兼容性
         args.extend(["-map", "1", "-c:v", "mjpeg", "-disposition:v", "attached_pic"])
 
     # 写入元数据
-    # 使用 -metadata:s:a:0 确保只写入音频流的标签
     args.extend(
         [
             "-metadata",

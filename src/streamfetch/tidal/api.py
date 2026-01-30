@@ -29,7 +29,7 @@ class TidalApi:
                 if found:
                     return found
         return None
-    
+
     def _ms_to_lrc(self, ms):
         """将毫秒转换为标准的 [mm:ss.xx] 格式"""
         try:
@@ -42,7 +42,6 @@ class TidalApi:
 
     def _extract_actual_lyrics(self, obj):
         """
-        深度复刻 mu.js 的 findLyricsInObject 逻辑：
         全量递归查找字符串，并支持动态列表转换
         """
         if not obj:
@@ -50,7 +49,6 @@ class TidalApi:
 
         # 1. 如果当前是字符串，判断它是否长得像歌词
         if isinstance(obj, str):
-            # 模仿 mu.js 的判断：包含换行符且长度足够
             if "\n" in obj and len(obj) > 20:
                 has_timestamp = "[" in obj and ":" in obj
                 return obj.strip(), has_timestamp
@@ -58,7 +56,7 @@ class TidalApi:
 
         # 2. 如果当前是字典，进行深度搜索
         if isinstance(obj, dict):
-            # A. 优先检查当前层是否有明确的歌词键，且值是字符串 (mu.js 逻辑)
+            # A. 优先检查当前层是否有明确的歌词键，且值是字符串
             for key in ["subtitles", "lyrics"]:
                 val = obj.get(key)
                 if isinstance(val, str) and len(val) > 20:
@@ -70,7 +68,9 @@ class TidalApi:
             if isinstance(lines, list) and len(lines) > 0:
                 # 检查列表项是否包含时间戳信息
                 first = lines[0]
-                if isinstance(first, dict) and ("startTime" in first or "start" in first):
+                if isinstance(first, dict) and (
+                    "startTime" in first or "start" in first
+                ):
                     lrc_lines = []
                     for item in lines:
                         start = item.get("startTime") or item.get("start")
@@ -81,7 +81,7 @@ class TidalApi:
                     if lrc_lines:
                         return "\n".join(lrc_lines), True
 
-            # C. 全量递归查找：遍历字典所有键 (复刻 mu.js 最核心的逻辑)
+            # C. 全量递归查找：遍历字典所有键
             for key, value in obj.items():
                 # 跳过已处理的键和非目标数据类型以提高效率
                 if key in ["trackId", "lyricsProvider", "album", "artist"]:
@@ -99,14 +99,14 @@ class TidalApi:
 
         return None
 
-
     def search_tracks(self, query):
         logger.info(
             f'🔍 正在搜索: [bold yellow]"{query}"[/bold yellow]...',
             extra={"markup": True},
         )
-        # 将 limit 稍微调大一点，比如 25，以匹配你的截图需求
-        url = f"{self.base_url}/search/?s={urllib.parse.quote(query)}&limit=25&countryCode=WW"
+        url = f"{self.base_url}/search/?s={
+            urllib.parse.quote(query)
+        }&limit=25&countryCode=WW"
         try:
             data = fetch_get(url).json()
             raw_items = self._find_items_array(data)
@@ -118,18 +118,16 @@ class TidalApi:
                 t = item.get("item", item)
                 if not t or not t.get("title"):
                     continue
-                
-                # --- 修复搜索结果音质显示 ---
+
                 base_quality = t.get("audioQuality", "Unknown")
                 tags = t.get("mediaMetadata", {}).get("tags", [])
-                
+
                 if "HIRES_LOSSLESS" in tags:
                     display_quality = "HI_RES"
                 elif "MQA" in tags:
                     display_quality = "HI_RES"
                 else:
                     display_quality = base_quality
-                # -------------------------
 
                 results.append(
                     {
@@ -139,7 +137,7 @@ class TidalApi:
                         or t.get("artists", [{}])[0].get("name")
                         or "Unknown",
                         "album": t.get("album", {}).get("title", "Unknown Album"),
-                        "quality": display_quality, # 使用修正后的音质
+                        "quality": display_quality,
                     }
                 )
             return results
@@ -154,15 +152,14 @@ class TidalApi:
         )
         resp = fetch_get(f"{self.base_url}/info/?id={track_id}").json()
         info = resp.get("data", resp)
-        
-        # --- 修复音质判定逻辑 ---
+
         # 1. 获取基础音质
         base_quality = info.get("audioQuality", "LOSSLESS")
-        
+
         # 2. 获取高级标签
         media_metadata = info.get("mediaMetadata", {})
         tags = media_metadata.get("tags", [])
-        
+
         # 3. 判定有效最高音质
         # 如果标签里明确写了 HIRES_LOSSLESS，强制提升为 HI_RES
         if "HIRES_LOSSLESS" in tags:
@@ -173,14 +170,14 @@ class TidalApi:
         # 否则使用基础音质
         else:
             effective_quality = base_quality
-        
+
         date_str = info.get("streamStartDate") or info.get("releaseDate")
         year = date_str.split("-")[0] if date_str else "Unknown"
 
         # 3. 获取脏标 (Explicit)
         is_explicit = info.get("explicit", False)
         explicit_tag = "E" if is_explicit else ""
-        
+
         return {
             "title": info.get("title", "Unknown Title"),
             "album": info.get("album", {}).get("title", "Unknown Album"),
@@ -189,9 +186,9 @@ class TidalApi:
             or "Unknown Artist",
             "trackNumber": info.get("trackNumber", 1),
             "coverId": info.get("album", {}).get("cover") or info.get("cover"),
-            "audioQuality": effective_quality, # 返回修正后的最高音质
-            "year": year,          # 新增
-            "explicit": explicit_tag # 新增
+            "audioQuality": effective_quality,
+            "year": year,
+            "explicit": explicit_tag,
         }
 
     def get_lyrics(self, track_id):
@@ -199,14 +196,17 @@ class TidalApi:
         try:
             resp = fetch_get(f"{self.base_url}/lyrics/?id={track_id}")
             data = resp.json()
-            
+
             result = self._extract_actual_lyrics(data)
             if result:
                 text, is_sync = result
                 type_str = "滚动歌词" if is_sync else "纯文本"
-                logger.info(f"   -> 提取成功 ([bold green]{type_str}[/bold green])", extra={"markup": True})
-                return {'text': text, 'isLrc': is_sync}
-            
+                logger.info(
+                    f"   -> 提取成功 ([bold green]{type_str}[/bold green])",
+                    extra={"markup": True},
+                )
+                return {"text": text, "isLrc": is_sync}
+
             logger.warning("   -> 未能在 API 返回中找到有效歌词内容")
         except Exception as e:
             logger.debug(f"歌词提取失败详情: {e}")
@@ -246,82 +246,64 @@ class TidalApi:
             "albumInfo": album_info,
             "tracks": [i.get("item", i) for i in items if i.get("item", i).get("id")],
         }
-        
+
     def get_playlist(self, playlist_uuid):
         """
-        获取歌单详情及所有歌曲（适配 JSON 结构: {playlist:..., items:[{item:...}]}）
+        获取歌单详情及所有歌
         """
         logger.info(f"📋 正在获取歌单信息: {playlist_uuid}...", extra={"markup": True})
-        
+
         # 基础 URL
         base_api_url = f"{self.base_url}/playlist/"
-        
+
         # 初始参数
-        params = {
-            "id": playlist_uuid,
-            "offset": 0,
-            "limit": 100,
-            "countryCode": "WW"
-        }
-        
-        # 1. 获取第一页数据
+        params = {"id": playlist_uuid, "offset": 0, "limit": 100, "countryCode": "WW"}
+
         try:
             resp = fetch_get(base_api_url, params=params).json()
         except Exception as e:
             raise Exception(f"无法获取歌单信息: {e}")
 
         # 2. 解析元数据 (修复点：优先查找 'playlist' 字段)
-        # 你的 JSON 结构中，元数据在 resp['playlist']
         info = resp.get("playlist") or resp.get("data") or resp.get("info") or resp
-            
+
         # 3. 循环获取所有歌曲
         all_tracks = []
-        
+
         logger.info("   -> 正在加载歌曲列表...", extra={"markup": True})
-        
+
         while True:
             # 查找 items 数组
             current_items = self._find_items_array(resp)
-            
+
             if not current_items:
                 break
-            
-            # 提取有效歌曲 (修复点：放宽过滤条件)
+
+            # 提取有效歌曲
             for item in current_items:
-                # 你的 JSON 结构: { "item": { "id":... }, "type": "track" }
-                
-                # 1. 检查外层类型（如果有）
-                # 如果外层明确标记为 video，则跳过
                 if isinstance(item, dict) and item.get("type") == "video":
                     continue
 
                 # 2. 提取内层数据
                 track = item.get("item", item)
-                
+
                 # 3. 验证有效性
-                # 只要有 id 和 title，且不是视频，就认为是有效歌曲
-                # 移除 track.get("type") == "TRACK" 的强校验，因为内层对象可能没有 type
                 if track and track.get("id") and track.get("title"):
-                    # 再次防御性检查：有些视频混在歌单里，内层会有 type="VIDEO"
                     if track.get("type") == "VIDEO":
                         continue
-                        
+
                     all_tracks.append(track)
-            
-            # 判断是否需要下一页
+
             if len(current_items) < params["limit"]:
                 break
-            
-            # 准备下一页请求
+
             params["offset"] += params["limit"]
-            
+
             try:
                 resp = fetch_get(base_api_url, params=params).json()
             except Exception as e:
                 logger.warning(f"分页加载中断: {e}")
                 break
 
-        return {
-            "info": info,
-            "tracks": all_tracks
-        }
+        return {"info": info, "tracks": all_tracks}
+
