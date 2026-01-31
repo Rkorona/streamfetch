@@ -34,11 +34,11 @@ def format_file_path(template: str, metadata: dict, base_dir: Path, extension: s
     try:
         relative_path_str = template.format(**safe_meta)
     except KeyError as e:
-        # 如果用户写了不存在的变量，回退到默认
+        # 如果写了不存在的变量，回退到默认
         print(f"模版变量错误: {e}，使用默认格式")
         relative_path_str = f"{safe_meta['TrackNumber']}. {safe_meta['Title']} - {safe_meta['Artist']}"
 
-    # 3. 处理路径分隔符 (允许用户在模版里用 / 创建子文件夹)
+    # 3. 处理路径分隔符 (允许在模版里用 / 创建子文件夹)
     # 将字符串转换为 Path 对象，这会自动处理不同系统的分隔符
     final_path = base_dir / f"{relative_path_str}{extension}"
     

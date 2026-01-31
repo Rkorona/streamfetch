@@ -13,7 +13,7 @@ class TidalApi:
         self.base_url = base_url
 
     def _switch_server(self):
-        """辅助函数：切换到新的服务器"""
+        
         old_url = self.base_url
         for _ in range(3):
             new_url = get_base_url()
@@ -22,9 +22,7 @@ class TidalApi:
                 break
 
         logger.warning(
-            f"⚠️  服务器异常 [dim]({old_url})[/dim]，切换至: [cyan]{
-                self.base_url
-            }[/cyan]",
+            f"⚠️ 服务器异常，切换至下一个服务器",
             extra={"markup": True},
         )
 
@@ -126,7 +124,7 @@ class TidalApi:
                     if not t or not t.get("title"):
                         continue
 
-                    # --- 修改点 1: 处理 Version 字段 ---
+                    # 处理 Version 字段 
                     title = t.get("title")
                     version = t.get("version")
                     if version:
@@ -145,7 +143,7 @@ class TidalApi:
                     results.append(
                         {
                             "id": str(t.get("id")),
-                            "title": title,  # 使用带版本号的标题
+                            "title": title, 
                             "artist": t.get("artist", {}).get("name")
                             or t.get("artists", [{}])[0].get("name")
                             or "Unknown",
@@ -206,6 +204,7 @@ class TidalApi:
                     "audioQuality": effective_quality,
                     "year": year,
                     "explicit": explicit_tag,
+                    "duration": info.get("duration", 0),
                 }
             except Exception as e:
                 if attempt == max_retries - 1:
@@ -258,21 +257,14 @@ class TidalApi:
         max_retries = 6
         for attempt in range(max_retries):
             try:
-                # 1. 请求专辑详情
+               
                 resp = fetch_get(f"{self.base_url}/album/?id={album_id}").json()
                 
-                # 2. 提取专辑元数据 (Root Data)
-                # 这里的 data 包含了 title, artist(关键!), 以及 items (歌曲列表)
                 album_info = resp.get("data", resp)
 
-                # 3. 提取歌曲列表
-                # 优先从当前响应里找 (根据你提供的 JSON，items 就在 data 里)
-                # _find_items_array 会递归查找 items 数组
                 raw_items = self._find_items_array(album_info)
 
-                # 4. 如果当前响应里没歌 (针对部分不返回 items 的镜像站)，才去请求 items 接口
                 if not raw_items:
-                    # logger.debug("专辑详情未包含歌曲，尝试请求 items 接口...")
                     tracks_url = f"{self.base_url}/album/items/?id={album_id}&limit=100&offset=0"
                     try:
                         tracks_resp = fetch_get(tracks_url).json()
@@ -283,12 +275,12 @@ class TidalApi:
                 if not raw_items:
                     raw_items = []
 
-                # 5. 格式化歌曲
+                # 格式化歌曲
                 clean_tracks = []
                 for item in raw_items:
                     t = item.get("item", item)
                     if t and t.get("id"):
-                        # 顺便把之前做的 Version 优化也加上
+                       
                         title = t.get("title")
                         version = t.get("version")
                         if version:
@@ -296,7 +288,7 @@ class TidalApi:
                         clean_tracks.append(t)
 
                 return {
-                    "albumInfo": album_info, # 这里现在是包含 artist 的完整对象了
+                    "albumInfo": album_info,
                     "tracks": clean_tracks
                 }
 

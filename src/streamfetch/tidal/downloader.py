@@ -5,6 +5,7 @@ import logging
 import time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from streamfetch.utils.lrclib import LRCLib
 
 from rich.progress import (
     Progress,
@@ -85,22 +86,35 @@ class TidalDownloader:
             final_path = format_file_path(
                 config["naming"]["file_format"], meta, download_dir, extension=".flac"
             )
-            
+
             if final_path.exists():
-                logger.info(f"⏭️  [dim]Skipped:[/dim] {meta['title']} (Exists)", extra={"markup": True})
+                logger.info(
+                    f"⏭️  [dim]Skipped:[/dim] {meta['title']} (Exists)",
+                    extra={"markup": True},
+                )
                 return
 
             # 获取流并下载
-            quality_map = {"HI_RES": "HI_RES_LOSSLESS", "LOSSLESS": "LOSSLESS", "HIGH": "HIGH"}
+            quality_map = {
+                "HI_RES": "HI_RES_LOSSLESS",
+                "LOSSLESS": "LOSSLESS",
+                "HIGH": "HIGH",
+            }
             priority = ["HI_RES", "LOSSLESS", "HIGH"]
-            
+
             user_q = config["audio"]["max_quality"]
             song_q = meta.get("audioQuality", "LOSSLESS")
-            start_idx = max(priority.index(user_q) if user_q in priority else 0,
-                           priority.index(song_q) if song_q in priority else 1)
-            
-            qualities = priority[start_idx:] if config["audio"]["auto_fallback"] else [priority[start_idx]]
-            
+            start_idx = max(
+                priority.index(user_q) if user_q in priority else 0,
+                priority.index(song_q) if song_q in priority else 1,
+            )
+
+            qualities = (
+                priority[start_idx:]
+                if config["audio"]["auto_fallback"]
+                else [priority[start_idx]]
+            )
+
             success = False
             for q in [quality_map[v] for v in qualities]:
                 try:
@@ -110,7 +124,7 @@ class TidalDownloader:
                     break
                 except Exception as e:
                     logger.debug(f"Quality {q} failed: {e}")
-            
+
             if not success:
                 logger.error(f"❌ Failed to download: {meta['title']}")
                 return
@@ -121,47 +135,80 @@ class TidalDownloader:
                 if meta.get("coverId"):
                     status.update("[bold green]Cover...")
                     try:
-                        cover_url = f"https://resources.tidal.com/images/{meta['coverId'].replace('-', '/')}/1280x1280.jpg"
+                        cover_url = f"https://resources.tidal.com/images/{
+                            meta['coverId'].replace('-', '/')
+                        }/1280x1280.jpg"
                         c_resp = fetch_get(cover_url)
                         if c_resp.content:
-                            with open(temp_cover, "wb") as f: f.write(c_resp.content)
+                            with open(temp_cover, "wb") as f:
+                                f.write(c_resp.content)
                             has_cover = True
-                    except: pass
+                    except:
+                        pass
 
                 status.update("[bold green]Lyrics...")
                 lyrics = self.api.get_lyrics(track_id)
+                if not lyrics:
+                    track_duration = meta.get("duration", 0)
+                    if track_duration > 0:
+                        lyrics = LRCLib.get_lyrics(
+                            meta["title"], meta["artist"], track_duration
+                        )
                 if lyrics:
-                    with open(temp_lyrics, "w", encoding="utf-8") as f: f.write(lyrics["text"])
+                    with open(temp_lyrics, "w", encoding="utf-8") as f:
+                        f.write(lyrics["text"])
                     if lyrics["isLrc"] and config["lyrics"]["save_lrc"]:
-                        with open(final_path.with_suffix(".lrc"), "w", encoding="utf-8") as f: f.write(lyrics["text"])
+                        with open(
+                            final_path.with_suffix(".lrc"), "w", encoding="utf-8"
+                        ) as f:
+                            f.write(lyrics["text"])
 
                 status.update("[bold green]Muxing...")
-                embed_metadata(temp_audio, temp_cover if has_cover else None, temp_lyrics if lyrics else None, meta, final_path)
-            
-            logger.info(f"✅ [bold green]Done:[/bold green] {final_path.name}", extra={"markup": True})
+                embed_metadata(
+                    temp_audio,
+                    temp_cover if has_cover else None,
+                    temp_lyrics if lyrics else None,
+                    meta,
+                    final_path,
+                )
+
+            logger.info(
+                f"✅ [bold green]Done:[/bold green] {final_path.name}",
+                extra={"markup": True},
+            )
 
         except Exception as e:
             logger.error(f"❌ Error processing track {track_id}: {e}")
         finally:
             for p in [temp_audio, temp_cover, temp_lyrics]:
-                if p.exists(): p.unlink()
+                if p.exists():
+                    p.unlink()
 
     def download_album(self, album_id, download_dir):
         """下载整张专辑"""
         data = self.api.get_album(album_id)
         album_info = data["albumInfo"]
         tracks = data["tracks"]
-        
+
         artist = album_info.get("artist", {}).get("name") or "Unknown Artist"
         title = album_info.get("title", "Unknown Album")
-        
-        logger.info(f"💿 Album: [bold cyan]{title}[/bold cyan] - {artist} ({len(tracks)} tracks)", extra={"markup": True})
-        
+
+        logger.info(
+            f"💿 Album: [bold cyan]{title}[/bold cyan] - {artist} ({
+                len(tracks)
+            } tracks)",
+            extra={"markup": True},
+        )
+
         for track in tracks:
             self.process_track(track["id"], download_dir)
 
     def download_playlist(self, tracks, download_dir):
         """下载歌单中的所有歌曲"""
         for i, track in enumerate(tracks):
-            logger.info(f"\n[bold]Progress {i+1}/{len(tracks)}:[/bold] {track.get('title')}", extra={"markup": True})
+            logger.info(
+                f"\n[bold]Progress {i + 1}/{len(tracks)}:[/bold] {track.get('title')}",
+                extra={"markup": True},
+            )
             self.process_track(track["id"], download_dir)
+

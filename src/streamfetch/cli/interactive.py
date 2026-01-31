@@ -9,14 +9,12 @@ def interactive_search(api, downloader, query, download_dir):
     if not results:
         console.print("[red]未找到相关歌曲。[/red]")
         return
-
-    # box=None 可以去掉表格边框，显得更现代（可选，这里我保留默认边框但优化列属性）
     table = Table(
         title=f"搜索结果: {query}",
         show_header=True,
         header_style="bold cyan",
         expand=True,  # 让表格填满终端宽度
-        box=None,  # 移除竖线边框，让长文本看起来更舒服（可选）
+        box=None,  # 移除竖线边框
         padding=(0, 1),  # 增加列间距
     )
 

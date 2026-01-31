@@ -45,7 +45,6 @@ Thumbs.db
 poetry.lock.backup
 pip-wheel-metadata/
 
-# 项目私有配置（⚠️非常重要）
 config.yml
 config.yaml
 .env
