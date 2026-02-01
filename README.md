@@ -27,7 +27,9 @@ pipx install git+https://github.com/Rkorona/streamfetch.git
 搜索并选择下载歌曲：
 
 ```bash
-sf search "Taylor Swift"
+sf search "Title"
+# 歌名 + 歌手 或 歌手 + 歌名  精确搜索
+sf search "Title - Artist"
 ```
 
 ### 2. 下载单曲

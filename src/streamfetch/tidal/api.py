@@ -13,7 +13,6 @@ class TidalApi:
         self.base_url = base_url
 
     def _switch_server(self):
-        
         old_url = self.base_url
         for _ in range(3):
             new_url = get_base_url()
@@ -98,24 +97,45 @@ class TidalApi:
         return None
 
     def search_tracks(self, query):
-        logger.info(
-            f'🔍 Searching: [bold yellow]"{query}"[/bold yellow]...',
-            extra={"markup": True},
-        )
+        # --- 1. 输入预处理 ---
+        search_query = query
+        match_parts = []
+
+        if " - " in query:
+            temp_parts = query.split(" - ", 1)
+            match_parts = [p.strip().lower() for p in temp_parts if p.strip()]
+            search_query = " ".join(match_parts)
+
+            logger.info(
+                f'🔍 识别到组合搜索: "[cyan]{match_parts[0]}[/cyan]" + "[cyan]{
+                    match_parts[1]
+                }[/cyan]"',
+                extra={"markup": True},
+            )
+        else:
+            logger.info(
+                f'🔍 Searching: [bold yellow]"{query}"[/bold yellow]...',
+                extra={"markup": True},
+            )
 
         max_retries = 6
 
         for attempt in range(max_retries):
             try:
                 url = f"{self.base_url}/search/?s={
-                    urllib.parse.quote(query)
+                    urllib.parse.quote(search_query)
                 }&limit=25&countryCode=WW"
+
                 resp = fetch_get(url)
                 data = resp.json()
 
                 raw_items = self._find_items_array(data)
 
                 if not raw_items:
+                    if attempt == 0 and match_parts:
+                        logger.debug("组合搜索未命中，尝试原始关键词...")
+                        search_query = query
+                        continue
                     return []
 
                 results = []
@@ -124,7 +144,6 @@ class TidalApi:
                     if not t or not t.get("title"):
                         continue
 
-                    # 处理 Version 字段 
                     title = t.get("title")
                     version = t.get("version")
                     if version:
@@ -132,34 +151,63 @@ class TidalApi:
 
                     base_quality = t.get("audioQuality", "Unknown")
                     tags = t.get("mediaMetadata", {}).get("tags", [])
-
-                    if "HIRES_LOSSLESS" in tags:
-                        display_quality = "HI_RES"
-                    elif "MQA" in tags:
+                    if "HIRES_LOSSLESS" in tags or "MQA" in tags:
                         display_quality = "HI_RES"
                     else:
                         display_quality = base_quality
 
+                    artists_list = t.get("artists", [])
+                    if artists_list:
+                        artist_names = [
+                            a.get("name") for a in artists_list if a.get("name")
+                        ]
+                        artist_name = ", ".join(artist_names)
+                    else:
+                        artist_name = t.get("artist", {}).get("name", "Unknown")
+
                     results.append(
                         {
                             "id": str(t.get("id")),
-                            "title": title, 
-                            "artist": t.get("artist", {}).get("name")
-                            or t.get("artists", [{}])[0].get("name")
-                            or "Unknown",
+                            "title": title,
+                            "artist": artist_name,
                             "album": t.get("album", {}).get("title", "Unknown Album"),
                             "quality": display_quality,
                         }
                     )
+
+                if match_parts and len(match_parts) == 2 and results:
+                    part_a = match_parts[0]
+                    part_b = match_parts[1]
+
+                    high_priority = []
+                    normal_priority = []
+
+                    for item in results:
+                        r_title = item["title"].lower()
+
+                        r_artist = item["artist"].lower()
+
+                        match_1 = (part_a in r_title) and (part_b in r_artist)
+                        match_2 = (part_b in r_title) and (part_a in r_artist)
+
+                        if match_1 or match_2:
+                            high_priority.append(item)
+                        else:
+                            normal_priority.append(item)
+
+                    if high_priority:
+                        logger.info(
+                            f"✨ 精确匹配到 {len(high_priority)} 个结果，已置顶"
+                        )
+                        return high_priority + normal_priority
+
                 return results
 
             except Exception as e:
                 is_last_attempt = attempt == max_retries - 1
-
                 if is_last_attempt:
                     logger.error(f"❌ 搜索最终失败: {e}")
                     return []
-
                 self._switch_server()
                 time.sleep(0.5)
 
@@ -257,40 +305,37 @@ class TidalApi:
         max_retries = 6
         for attempt in range(max_retries):
             try:
-               
                 resp = fetch_get(f"{self.base_url}/album/?id={album_id}").json()
-                
+
                 album_info = resp.get("data", resp)
 
                 raw_items = self._find_items_array(album_info)
 
                 if not raw_items:
-                    tracks_url = f"{self.base_url}/album/items/?id={album_id}&limit=100&offset=0"
+                    tracks_url = (
+                        f"{self.base_url}/album/items/?id={album_id}&limit=100&offset=0"
+                    )
                     try:
                         tracks_resp = fetch_get(tracks_url).json()
                         raw_items = self._find_items_array(tracks_resp)
                     except:
                         pass
-                
+
                 if not raw_items:
                     raw_items = []
 
-                # 格式化歌曲
+    
                 clean_tracks = []
                 for item in raw_items:
                     t = item.get("item", item)
                     if t and t.get("id"):
-                       
                         title = t.get("title")
                         version = t.get("version")
                         if version:
                             t["title"] = f"{title} ({version})"
                         clean_tracks.append(t)
 
-                return {
-                    "albumInfo": album_info,
-                    "tracks": clean_tracks
-                }
+                return {"albumInfo": album_info, "tracks": clean_tracks}
 
             except Exception as e:
                 if attempt == max_retries - 1:
